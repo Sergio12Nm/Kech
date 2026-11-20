@@ -8,12 +8,14 @@ import 'package:go_router/go_router.dart';
 import '../../shared/ui.dart';
 import '../../core/local_store.dart';
 import '../receipts/ocr_service.dart';
+import '../assistant/assistant_service.dart';
 import 'model.dart';
 
 class ExpenseForm extends ConsumerStatefulWidget {
-  const ExpenseForm({super.key, this.image, this.draft});
+  const ExpenseForm({super.key, this.image, this.draft, this.assistantDraft});
   final Uint8List? image;
   final ReceiptDraft? draft;
+  final AssistantDraft? assistantDraft;
   @override
   ConsumerState<ExpenseForm> createState() => _ExpenseFormState();
 }
@@ -29,10 +31,22 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
   String? category = categories.first;
   String payment = 'Desconocido';
   bool saving = false;
+  bool dateConfirmed = true;
   @override
   void initState() {
     super.initState();
     concept.text = 'Compra';
+    final suggested = widget.assistantDraft;
+    if (suggested != null) {
+      dateConfirmed = false;
+      if (suggested.date != null) date = suggested.date!;
+      amount.text = suggested.amount;
+      concept.text = suggested.concept.isEmpty ? 'Compra' : suggested.concept;
+      merchant.text = suggested.merchant;
+      reference.text = suggested.reference;
+      category = suggested.category;
+      payment = suggested.payment;
+    }
     final draft = widget.draft;
     if (draft != null) {
       amount.text = draft.total ?? '';
@@ -110,8 +124,16 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Fecha'),
-                  subtitle: Text(dateLabel(date)),
+                  title: Text(
+                    dateConfirmed ? 'Fecha' : 'Fecha: selecciona y confirma',
+                  ),
+                  subtitle: Text(
+                    dateConfirmed
+                        ? dateLabel(date)
+                        : (widget.assistantDraft?.date == null
+                              ? 'Sin identificar'
+                              : '${dateLabel(date)} · sugerida'),
+                  ),
                   trailing: const Icon(Icons.calendar_today_outlined),
                   onTap: () async {
                     final d = await showDatePicker(
@@ -120,7 +142,12 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
                       firstDate: DateTime(2000),
                       lastDate: DateTime(2100),
                     );
-                    if (d != null) setState(() => date = d);
+                    if (d != null) {
+                      setState(() {
+                        date = d;
+                        dateConfirmed = true;
+                      });
+                    }
                   },
                 ),
                 const Gap(),
@@ -201,6 +228,13 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
                 ? null
                 : () async {
                     if (!form.currentState!.validate()) return;
+                    if (!dateConfirmed) {
+                      notice(
+                        context,
+                        'Selecciona y confirma la fecha del gasto.',
+                      );
+                      return;
+                    }
                     final total = parseCents(amount.text)!;
                     final breakdown = <String, int>{};
                     if (payment == 'Pago mixto') {

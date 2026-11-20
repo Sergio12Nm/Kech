@@ -14,6 +14,7 @@ import '../features/expenses/expenses.dart';
 import '../features/receipts/receipts.dart';
 import '../features/receipts/ocr_service.dart';
 import '../features/assistant/assistant.dart';
+import '../features/assistant/assistant_service.dart';
 import '../shared/ui.dart';
 import '../core/local_store.dart';
 
@@ -43,6 +44,9 @@ final router = GoRouter(
                   ? (state.extra as ReceiptDraft).image
                   : null),
         draft: state.extra is ReceiptDraft ? state.extra as ReceiptDraft : null,
+        assistantDraft: state.extra is AssistantDraft
+            ? state.extra as AssistantDraft
+            : null,
       ),
     ),
     GoRoute(path: '/escanear', builder: (_, _) => const ScanScreen()),

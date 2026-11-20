@@ -167,8 +167,13 @@ void main() {
     expect(find.textContaining('120.50'), findsWidgets);
     await tester.tap(find.text('Asistente').last);
     await tester.pumpAndSettle();
+    expect(find.byTooltip('Dictar mensaje'), findsOneWidget);
     expect(
-      find.textContaining('Servicio pendiente de integración'),
+      tester.getCenter(find.byTooltip('Dictar mensaje')).dx,
+      lessThan(tester.getCenter(find.byTooltip('Enviar')).dx),
+    );
+    expect(
+      find.textContaining('Demostración: escribe solo datos ficticios'),
       findsOneWidget,
     );
     await tester.tap(find.text('Inicio').last);

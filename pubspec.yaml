@@ -20,12 +20,24 @@ dependencies:
   sqflite: ^2.4.6
   cryptography: ^2.9.0
   path: ^1.9.1
+  http: ^1.6.0
+  speech_to_text: ^7.5.0
+  flutter_tts: ^4.2.5
 dev_dependencies:
   flutter_test:
     sdk: flutter
   integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/kech_logo.jpeg
+  adaptive_icon_background: '#F1F5F9'
+  adaptive_icon_foreground: assets/kech_logo.jpeg
+  adaptive_icon_foreground_inset: 0
+
 flutter:
   uses-material-design: true
   assets:
