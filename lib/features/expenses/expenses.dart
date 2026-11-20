@@ -1,12 +1,19 @@
 import 'package:material_ui/material_ui.dart';
+
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../shared/ui.dart';
+import '../../core/local_store.dart';
+import '../receipts/ocr_service.dart';
 import 'model.dart';
 
 class ExpenseForm extends ConsumerStatefulWidget {
-  const ExpenseForm({super.key});
+  const ExpenseForm({super.key, this.image, this.draft});
+  final Uint8List? image;
+  final ReceiptDraft? draft;
   @override
   ConsumerState<ExpenseForm> createState() => _ExpenseFormState();
 }
@@ -19,7 +26,24 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
       reference = TextEditingController();
   final parts = {for (final p in payments.take(5)) p: TextEditingController()};
   DateTime date = DateTime.now();
-  String category = categories.first, payment = 'Desconocido';
+  String? category = categories.first;
+  String payment = 'Desconocido';
+  bool saving = false;
+  @override
+  void initState() {
+    super.initState();
+    concept.text = 'Compra';
+    final draft = widget.draft;
+    if (draft != null) {
+      amount.text = draft.total ?? '';
+      merchant.text = draft.merchant ?? '';
+      reference.text = draft.reference ?? '';
+      if (draft.date != null) date = draft.date!;
+      payment = draft.payment ?? 'Desconocido';
+      category = draft.category;
+    }
+  }
+
   @override
   void dispose() {
     for (final c in [amount, concept, merchant, reference, ...parts.values]) {
@@ -35,10 +59,12 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
       key: form,
       child: PageBody(
         children: [
-          const Panel(
+          Panel(
             color: Color(0xffe7eefc),
             child: Text(
-              'Nuevo comprobante\nIngresa el importe y los detalles de la compra.',
+              widget.image == null
+                  ? 'Nuevo comprobante\nIngresa el importe y los detalles de la compra.'
+                  : 'Revisa y confirma los datos. Las sugerencias OCR pueden contener errores; los campos faltantes requieren captura manual.',
             ),
           ),
           const Gap(),
@@ -109,7 +135,16 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
                 ),
                 DropdownButtonFormField<String>(
                   initialValue: category,
-                  decoration: const InputDecoration(labelText: 'Categoría'),
+                  decoration: InputDecoration(
+                    labelText: 'Categoría',
+                    helperText: widget.draft != null
+                        ? (widget.draft!.category == null
+                              ? 'Sin sugerencia: selecciona una categoría'
+                              : 'Sugerencia basada en productos; verifica')
+                        : null,
+                  ),
+                  validator: (value) =>
+                      value == null ? 'Selecciona una categoría' : null,
                   items: categories
                       .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                       .toList(),
@@ -162,41 +197,70 @@ class _ExpenseFormState extends ConsumerState<ExpenseForm> {
           ),
           const Gap(),
           FilledButton(
-            onPressed: () {
-              if (!form.currentState!.validate()) return;
-              final total = parseCents(amount.text)!;
-              final breakdown = <String, int>{};
-              if (payment == 'Pago mixto') {
-                for (final e in parts.entries) {
-                  final n = parseCents(e.value.text) ?? 0;
-                  if (n > 0) breakdown[e.key] = n;
-                }
-                if (breakdown.length < 2 ||
-                    breakdown.values.fold<int>(0, (a, b) => a + b) != total) {
-                  notice(
-                    context,
-                    'Usa al menos dos métodos y asegúrate de que sumen el total.',
-                  );
-                  return;
-                }
-              }
-              ref
-                  .read(expensesProvider.notifier)
-                  .add(
-                    Expense(
-                      cents: total,
-                      concept: concept.text.trim(),
-                      merchant: merchant.text.trim(),
-                      date: date,
-                      category: category,
-                      payment: payment,
-                      reference: reference.text.trim(),
-                      parts: breakdown,
-                    ),
-                  );
-              context.go('/registros');
-              notice(context, 'Gasto guardado en la sesión de demostración.');
-            },
+            onPressed: saving
+                ? null
+                : () async {
+                    if (!form.currentState!.validate()) return;
+                    final total = parseCents(amount.text)!;
+                    final breakdown = <String, int>{};
+                    if (payment == 'Pago mixto') {
+                      for (final e in parts.entries) {
+                        final n = parseCents(e.value.text) ?? 0;
+                        if (n > 0) breakdown[e.key] = n;
+                      }
+                      if (breakdown.length < 2 ||
+                          breakdown.values.fold<int>(0, (a, b) => a + b) !=
+                              total) {
+                        notice(
+                          context,
+                          'Usa al menos dos métodos y asegúrate de que sumen el total.',
+                        );
+                        return;
+                      }
+                    }
+                    setState(() => saving = true);
+                    try {
+                      await ref
+                          .read(expensesProvider.notifier)
+                          .add(
+                            Expense(
+                              cents: total,
+                              concept: concept.text.trim(),
+                              merchant: merchant.text.trim(),
+                              date: date,
+                              category: category!,
+                              payment: payment,
+                              reference: reference.text.trim(),
+                              parts: breakdown,
+                              image: widget.image,
+                              recognizedText: widget.draft?.text,
+                              suggestedTotal: widget.draft?.total,
+                              suggestedDate: widget.draft?.date,
+                              suggestedPayment: widget.draft?.payment,
+                              suggestedMerchant: widget.draft?.merchant,
+                              suggestedReference: widget.draft?.reference,
+                              suggestedCategory: widget.draft?.category,
+                            ),
+                          );
+                    } catch (_) {
+                      if (context.mounted) {
+                        setState(() => saving = false);
+                        notice(
+                          context,
+                          'No se pudo guardar el gasto. Inténtalo de nuevo.',
+                        );
+                      }
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    context.go('/registros');
+                    notice(
+                      context,
+                      LocalStore.instance.demo
+                          ? 'Gasto guardado en la sesión de demostración.'
+                          : 'Gasto guardado en este dispositivo.',
+                    );
+                  },
             child: const Text('GUARDAR GASTO'),
           ),
           const Gap(8),
@@ -231,7 +295,7 @@ class ExpenseTile extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         subtitle: Text(
-          '${expense.concept}\n${dateLabel(expense.date)} · ${expense.category}\n${expense.payment} · Manual',
+          '${expense.concept}\n${dateLabel(expense.date)} · ${expense.category}\n${expense.payment} · ${expense.image == null ? 'Manual' : 'Manual con foto'}',
           maxLines: 3,
           overflow: TextOverflow.ellipsis,
         ),
@@ -260,7 +324,39 @@ class ExpenseTile extends StatelessWidget {
                   Text(
                     'Referencia: ${expense.reference.isEmpty ? 'Sin referencia' : expense.reference}',
                   ),
-                  const Text('Origen: Manual · Demostración'),
+                  Text(
+                    'Origen: ${expense.image == null ? 'Manual' : 'Manual con foto'}',
+                  ),
+                  if (expense.image != null) ...[
+                    const Gap(),
+                    Image.memory(expense.image!, fit: BoxFit.contain),
+                  ],
+                  if (expense.recognizedText?.isNotEmpty ?? false) ...[
+                    const Gap(),
+                    const Text('Texto OCR original:'),
+                    SelectableText(expense.recognizedText!),
+                    Text(
+                      'Categoría sugerida: ${expense.suggestedCategory ?? 'Sin identificar'}',
+                    ),
+                    Text(
+                      'Comercio sugerido: ${expense.suggestedMerchant ?? 'Sin identificar'}',
+                    ),
+                    Text(
+                      'Folio sugerido: ${expense.suggestedReference ?? 'Sin identificar'}',
+                    ),
+                    Text(
+                      'Total sugerido: ${expense.suggestedTotal ?? 'Sin identificar'}',
+                    ),
+                    Text(
+                      'Fecha sugerida: ${expense.suggestedDate == null ? 'Sin identificar' : dateLabel(expense.suggestedDate!)}',
+                    ),
+                    Text(
+                      'Pago sugerido: ${expense.suggestedPayment ?? 'Desconocido'}',
+                    ),
+                    const Text(
+                      'Los valores del gasto son los confirmados por el usuario.',
+                    ),
+                  ],
                   const Text('Estado de liquidación: No indicado'),
                 ],
               ),
@@ -337,7 +433,9 @@ class _RecordsState extends ConsumerState<RecordsScreen> {
                   style: Theme.of(context).textTheme.headlineMedium
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
-                Text('${list.length} gastos · Demostración'),
+                Text(
+                  '${list.length} gastos${LocalStore.instance.demo ? ' · Demostración' : ''}',
+                ),
               ],
             ),
           ),

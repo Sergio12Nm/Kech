@@ -1,5 +1,6 @@
-﻿import 'package:material_ui/material_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart';
+
 import 'package:flutter_localizations/flutter_localizations.dart'
     hide GlobalMaterialLocalizations, GlobalCupertinoLocalizations;
 import 'package:cupertino_ui/cupertino_ui.dart'
@@ -11,13 +12,17 @@ import '../features/auth/auth.dart';
 import '../features/home/home.dart';
 import '../features/expenses/expenses.dart';
 import '../features/receipts/receipts.dart';
+import '../features/receipts/ocr_service.dart';
 import '../features/assistant/assistant.dart';
 import '../shared/ui.dart';
+import '../core/local_store.dart';
 
 final router = GoRouter(
   initialLocation: '/',
+  refreshListenable: LocalStore.instance.session,
   redirect: (context, state) {
-    if (!kDebugMode && !['/', '/crear', '/recuperar'].contains(state.uri.path)) {
+    if (LocalStore.instance.session.value == null &&
+        !['/', '/crear', '/recuperar'].contains(state.uri.path)) {
       return '/';
     }
     return null;
@@ -29,9 +34,24 @@ final router = GoRouter(
     GoRoute(path: '/inicio', builder: (_, _) => const HomeScreen()),
     GoRoute(path: '/registros', builder: (_, _) => const RecordsScreen()),
     GoRoute(path: '/asistente', builder: (_, _) => const AssistantScreen()),
-    GoRoute(path: '/gasto', builder: (_, _) => const ExpenseForm()),
+    GoRoute(
+      path: '/gasto',
+      builder: (_, state) => ExpenseForm(
+        image: state.extra is Uint8List
+            ? state.extra as Uint8List
+            : (state.extra is ReceiptDraft
+                  ? (state.extra as ReceiptDraft).image
+                  : null),
+        draft: state.extra is ReceiptDraft ? state.extra as ReceiptDraft : null,
+      ),
+    ),
     GoRoute(path: '/escanear', builder: (_, _) => const ScanScreen()),
-    GoRoute(path: '/revisar', builder: (_, _) => const ReviewScreen()),
+    GoRoute(
+      path: '/revisar',
+      builder: (_, state) => ReviewScreen(
+        image: state.extra is Uint8List ? state.extra as Uint8List : null,
+      ),
+    ),
   ],
 );
 
@@ -99,4 +119,3 @@ class KechApp extends StatelessWidget {
 }
 
 void mainApp() => runApp(const ProviderScope(child: KechApp()));
-

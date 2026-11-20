@@ -1,6 +1,10 @@
-﻿import 'package:material_ui/material_ui.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../core/local_store.dart';
+import '../features/expenses/model.dart';
 
 const blue = Color(0xff526f8d),
     green = Color(0xff5f927b),
@@ -115,6 +119,17 @@ class Shell extends StatelessWidget {
       ),
       actions: [
         IconButton(
+          tooltip: 'Cerrar sesión',
+          icon: const Icon(Icons.logout),
+          onPressed: () {
+            ProviderScope.containerOf(context)
+                .read(expensesProvider.notifier)
+                .clear();
+            LocalStore.instance.logout();
+            context.go('/');
+          },
+        ),
+        IconButton(
           onPressed: () => context.go('/asistente'),
           icon: const Icon(Icons.smart_toy_outlined),
           tooltip: 'Chequi',
@@ -178,4 +193,3 @@ class LabeledField extends StatelessWidget {
 
 String? requiredText(String? value) =>
     value == null || value.trim().isEmpty ? 'Este campo es obligatorio' : null;
-

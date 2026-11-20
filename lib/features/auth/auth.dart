@@ -1,17 +1,62 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sqflite/sqflite.dart';
+
+import '../../core/local_store.dart';
+import '../expenses/model.dart';
 
 import '../../shared/ui.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
   @override
-  State<LoginScreen> createState() => _LoginState();
+  ConsumerState<LoginScreen> createState() => _LoginState();
 }
 
-class _LoginState extends State<LoginScreen> {
+class _LoginState extends ConsumerState<LoginScreen> {
   bool hidden = true;
+  bool busy = false;
+  final identifier = TextEditingController(),
+      password = TextEditingController();
+  @override
+  void dispose() {
+    identifier.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
+  Future<void> login() async {
+    if (identifier.text.trim().isEmpty || password.text.isEmpty) {
+      notice(context, 'Introduce tu correo o usuario y contraseña.');
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      final ok = await LocalStore.instance.login(
+        identifier.text,
+        password.text,
+      );
+      if (!mounted) return;
+      if (!ok) {
+        notice(context, 'Correo, usuario o contraseña incorrectos.');
+        return;
+      }
+      await ref
+          .read(expensesProvider.notifier)
+          .load(LocalStore.instance.session.value!);
+      if (mounted) context.go('/inicio');
+    } catch (_) {
+      LocalStore.instance.logout();
+      if (mounted) {
+        notice(context, 'No se pudo iniciar sesión en este dispositivo.');
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: SafeArea(
@@ -27,6 +72,7 @@ class _LoginState extends State<LoginScreen> {
                 ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const Text('GESTOR DE GASTOS Y RECIBOS', textAlign: TextAlign.center),
+          const Text('Cuenta local: tus datos permanecen en este dispositivo.', textAlign: TextAlign.center),
           const Gap(30),
           Panel(
             child: Column(
@@ -38,9 +84,13 @@ class _LoginState extends State<LoginScreen> {
                       ?.copyWith(fontWeight: FontWeight.bold),
                 ),
                 const Gap(24),
-                const LabeledField(label: 'Correo electrónico o usuario'),
+                LabeledField(
+                  label: 'Correo electrónico o usuario',
+                  controller: identifier,
+                ),
                 LabeledField(
                   label: 'Contraseña',
+                  controller: password,
                   obscure: hidden,
                   suffix: IconButton(
                     onPressed: () => setState(() => hidden = !hidden),
@@ -60,11 +110,8 @@ class _LoginState extends State<LoginScreen> {
                 ),
                 const Gap(),
                 FilledButton(
-                  onPressed: () => notice(
-                    context,
-                    'El inicio de sesión estará disponible al integrar el servicio.',
-                  ),
-                  child: const Text('INICIAR SESIÓN'),
+                  onPressed: busy ? null : login,
+                  child: Text(busy ? 'INICIANDO…' : 'INICIAR SESIÓN'),
                 ),
               ],
             ),
@@ -77,7 +124,11 @@ class _LoginState extends State<LoginScreen> {
           if (kDebugMode) ...[
             const Gap(),
             FilledButton.tonal(
-              onPressed: () => context.go('/inicio'),
+              onPressed: () {
+                LocalStore.instance.enterDemo();
+                ref.read(expensesProvider.notifier).clear();
+                context.go('/inicio');
+              },
               child: const Text('Entrar en modo demostración'),
             ),
           ],
@@ -103,10 +154,19 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterState extends State<RegisterScreen> {
   final form = GlobalKey<FormState>();
   final password = TextEditingController();
+  final name = TextEditingController(),
+      surname = TextEditingController(),
+      email = TextEditingController(),
+      username = TextEditingController(),
+      businessName = TextEditingController();
+  bool busy = false;
   bool business = false, terms = false, hidden = true;
   @override
   void dispose() {
     password.dispose();
+    for (final c in [name, surname, email, username, businessName]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -131,10 +191,19 @@ class _RegisterState extends State<RegisterScreen> {
                   style: TextStyle(fontWeight: FontWeight.bold, color: blue),
                 ),
                 const Gap(),
-                const LabeledField(label: 'Nombre', validator: requiredText),
-                const LabeledField(label: 'Apellidos', validator: requiredText),
+                LabeledField(
+                  label: 'Nombre',
+                  controller: name,
+                  validator: requiredText,
+                ),
+                LabeledField(
+                  label: 'Apellidos',
+                  controller: surname,
+                  validator: requiredText,
+                ),
                 LabeledField(
                   label: 'Correo electrónico',
+                  controller: email,
                   keyboardType: TextInputType.emailAddress,
                   validator: (v) =>
                       v == null ||
@@ -142,7 +211,13 @@ class _RegisterState extends State<RegisterScreen> {
                       ? 'Introduce un correo válido'
                       : null,
                 ),
-                const LabeledField(label: 'Nombre de usuario (opcional)'),
+                LabeledField(
+                  label: 'Nombre de usuario (opcional)',
+                  controller: username,
+                  validator: (v) => v != null && v.contains('@')
+                      ? 'El usuario no puede contener @'
+                      : null,
+                ),
                 SegmentedButton<bool>(
                   segments: const [
                     ButtonSegment(value: false, label: Text('Personal')),
@@ -153,8 +228,9 @@ class _RegisterState extends State<RegisterScreen> {
                 ),
                 const Gap(),
                 if (business)
-                  const LabeledField(
+                  LabeledField(
                     label: 'Nombre del negocio',
+                    controller: businessName,
                     validator: requiredText,
                   ),
               ],
@@ -200,18 +276,53 @@ class _RegisterState extends State<RegisterScreen> {
             controlAffinity: ListTileControlAffinity.leading,
           ),
           FilledButton(
-            onPressed: () {
-              if (form.currentState!.validate()) {
-                if (!terms) {
-                  notice(context, 'Acepta los términos para continuar.');
-                  return;
-                }
-                notice(
-                  context,
-                  'El registro de cuentas está pendiente de integración.',
-                );
-              }
-            },
+            onPressed: busy
+                ? null
+                : () async {
+                    if (form.currentState!.validate()) {
+                      if (!terms) {
+                        notice(context, 'Acepta los términos para continuar.');
+                        return;
+                      }
+                      setState(() => busy = true);
+                      try {
+                        await LocalStore.instance.register(
+                          name: name.text,
+                          surname: surname.text,
+                          email: email.text,
+                          username: username.text,
+                          password: password.text,
+                          business: business,
+                          businessName: businessName.text,
+                        );
+                        if (context.mounted) {
+                          context.go('/');
+                          notice(
+                            context,
+                            'Cuenta creada en este dispositivo. Inicia sesión.',
+                          );
+                        }
+                      } on DatabaseException catch (e) {
+                        if (context.mounted) {
+                          notice(
+                            context,
+                            e.isUniqueConstraintError()
+                                ? 'El correo o usuario ya está registrado.'
+                                : 'No se pudo crear la cuenta.',
+                          );
+                        }
+                      } catch (_) {
+                        if (context.mounted) {
+                          notice(
+                            context,
+                            'No se pudo crear la cuenta en este dispositivo.',
+                          );
+                        }
+                      } finally {
+                        if (mounted) setState(() => busy = false);
+                      }
+                    }
+                  },
             child: const Text('CREAR CUENTA'),
           ),
         ],
@@ -234,7 +345,7 @@ class RecoveryScreen extends StatelessWidget {
             const Panel(
               color: Color(0xffe7eefc),
               child: Text(
-                'Recuperación de cuenta\nEl envío, la verificación y el cambio de contraseña estarán disponibles cuando se integre el servicio.',
+                'Recuperación de cuenta\nLas cuentas y sus contraseñas son locales. La recuperación por correo aún no está disponible. Si olvidas tu contraseña, no podrás acceder a los datos de esta cuenta.',
               ),
             ),
             const Gap(24),
@@ -270,4 +381,3 @@ class RecoveryScreen extends StatelessWidget {
     );
   }
 }
-

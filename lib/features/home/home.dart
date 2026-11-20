@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../shared/ui.dart';
+import '../../core/local_store.dart';
 import '../expenses/model.dart';
 import '../expenses/expenses.dart';
 
@@ -25,8 +26,10 @@ class HomeScreen extends ConsumerWidget {
       index: 0,
       body: PageBody(
         children: [
-          const Text(
-            'Modo demostración · Datos temporales y ficticios',
+          Text(
+            LocalStore.instance.demo
+                ? 'Modo demostración · Datos temporales y ficticios'
+                : 'Tus gastos guardados en este dispositivo',
             style: TextStyle(color: green, fontWeight: FontWeight.bold),
           ),
           const Gap(),
@@ -88,7 +91,7 @@ class HomeScreen extends ConsumerWidget {
                       const Gap(),
                       const Text('Tickets registrados'),
                       Text(
-                        '0',
+                        '${items.where((e) => e.image != null).length}',
                         style: Theme.of(context).textTheme.headlineMedium
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
